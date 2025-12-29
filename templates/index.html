@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FortiWeb Analytics Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* --- THEME VARIABLES --- */
+        :root {
+            --bg-color: #0f172a; --card-bg: #1e293b; --card-border: #334155;
+            --text-primary: #f8fafc; --text-secondary: #94a3b8;
+            --accent-blue: #3b82f6; --accent-green: #10b981; --accent-red: #ef4444; --accent-orange: #f59e0b; --accent-purple: #a855f7;
+            --chart-grid: #334155; --input-bg: #0f172a; --hover-bg: #283445;
+        }
+        body.light-mode {
+            --bg-color: #f1f5f9; --card-bg: #ffffff; --card-border: #e2e8f0;
+            --text-primary: #0f172a; --text-secondary: #64748b;
+            --chart-grid: #e2e8f0; --input-bg: #f8fafc; --hover-bg: #f1f5f9;
+        }
+        * { box-sizing: border-box; transition: background-color 0.3s, border-color 0.3s, color 0.3s; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg-color); color: var(--text-primary); margin: 0; padding: 20px; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        /* HEADER & TABS */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header h1 { margin: 0; font-size: 1.5rem; display: flex; align-items: center; gap: 10px; }
+        .controls { display: flex; gap: 15px; align-items: center; }
+        .tabs { display: flex; gap: 5px; background: var(--card-bg); padding: 4px; border-radius: 8px; border: 1px solid var(--card-border); }
+        .tab-btn { background: transparent; border: none; color: var(--text-secondary); padding: 8px 16px; cursor: pointer; border-radius: 6px; font-weight: 600; font-size: 0.9rem; }
+        .tab-btn.active { background: var(--accent-blue); color: white; }
+        .theme-toggle { background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 1.2rem; }
+        .live-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; padding: 5px 12px; border-radius: 20px; background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .live-badge.offline { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border-color: rgba(239, 68, 68, 0.2); }
+
+        /* LAYOUT */
+        .view-section { display: none; animation: fadeIn 0.3s ease; }
+        .view-section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .dashboard-grid { display: grid; gap: 15px; grid-template-columns: repeat(5, 1fr); grid-template-areas: "cpu mem disk tconns cps" "chart chart chart chart chart" "iface iface threat threat threat" "policies policies policies policies policies"; }
+        .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; position: relative; }
+        .card-title { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        
+        /* METRICS */
+        .metric-val { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 700; }
+        .metric-sub { font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; }
+        .mini-bar { height: 4px; background: var(--input-bg); border-radius: 2px; margin-top: auto; overflow: hidden; }
+        .mini-bar-fill { height: 100%; transition: width 0.5s; }
+        .chart-area { grid-area: chart; height: 320px; }
+        
+        /* INTERFACES */
+        .iface-area { grid-area: iface; } .threat-area { grid-area: threat; } .policy-area { grid-area: policies; }
+        .iface-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .iface-node { width: 34px; height: 34px; border-radius: 6px; background: var(--input-bg); border: 1px solid var(--card-border); display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 600; color: var(--text-secondary); cursor: default; transition: transform 0.1s; }
+        .iface-node:hover { transform: scale(1.1); }
+        .status-up { background: rgba(16, 185, 129, 0.1); border-color: var(--accent-green); color: var(--accent-green); }
+        .status-down { opacity: 0.4; }
+        .status-agg { background: rgba(59, 130, 246, 0.1); border-color: var(--accent-blue); color: var(--accent-blue); width: 42px; }
+        .status-vlan { background: rgba(168, 85, 247, 0.1); border-color: var(--accent-purple); color: var(--accent-purple); width: 42px; }
+        .group-label { font-size: 0.7rem; color: var(--text-secondary); margin-top: 10px; border-bottom: 1px dashed var(--card-border); padding-bottom: 2px; }
+
+        /* THREATS & POLICIES */
+        .threat-row { display: flex; gap: 20px; height: 100%; } .threat-col { flex: 1; display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; }
+        .threat-item { display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; }
+        .threat-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .threat-bar-bg { width: 60px; height: 6px; background: var(--input-bg); margin: 0 10px; border-radius: 3px; }
+        .threat-bar-fill { height: 100%; background: var(--accent-red); border-radius: 3px; }
+        .threat-count { font-family: 'JetBrains Mono'; font-weight: bold; width: 25px; text-align: right; }
+        .policy-toolbar { display: flex; gap: 15px; margin-bottom: 15px; }
+        .policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+        .policy-card { background: var(--input-bg); border: 1px solid transparent; border-radius: 8px; padding: 12px; }
+        .policy-card.active { border-color: var(--accent-green); background: rgba(16, 185, 129, 0.05); }
+        .policy-head { font-weight: 600; font-size: 0.9rem; border-bottom: 1px solid var(--card-border); padding-bottom: 5px; margin-bottom: 5px; }
+        .policy-stat { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-secondary); }
+        .policy-val { font-family: 'JetBrains Mono'; color: var(--text-primary); }
+
+        /* HISTORY */
+        .history-controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; background: var(--card-bg); padding: 10px; border-radius: 10px; border: 1px solid var(--card-border); }
+        .history-charts-row { display: flex; flex-direction: column; gap: 20px; margin-bottom: 20px; }
+        .history-chart-container { height: 350px; width: 100%; flex: 1; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 15px; display: flex; flex-direction: column;}
+        .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+        .history-table th, .history-table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--card-border); }
+        .history-table th { color: var(--text-secondary); text-transform: uppercase; font-size: 0.75rem; background: var(--input-bg); }
+        .history-table td { font-family: 'JetBrains Mono'; color: var(--text-primary); }
+        .btn { background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-secondary); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        .btn:hover { background: var(--hover-bg); color: var(--text-primary); }
+        .btn-icon { padding: 8px; font-size: 1.1rem; }
+        .btn-primary { background: var(--accent-blue); color: white; border: none; }
+        .input-control { background: var(--input-bg); border: 1px solid var(--card-border); color: var(--text-primary); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 0.85rem; }
+
+        @media (max-width: 1200px) { .dashboard-grid { grid-template-columns: 1fr 1fr; grid-template-areas: "cpu mem" "disk tconns" "cps cps" "chart chart" "iface iface" "threat threat" "policies policies"; } }
+    </style>
+</head>
+<body class="dark-mode">
+    <div class="container">
+        <div class="header">
+            <h1>FortiWeb Analytics</h1>
+            <div class="controls">
+                <div class="tabs"><button class="tab-btn active" onclick="switchTab('live-view')">Live Dashboard</button><button class="tab-btn" onclick="switchTab('history-view')">Historical Data</button></div>
+                <button class="theme-toggle" onclick="toggleTheme()"><span id="theme-icon">🌙</span></button>
+                <div id="connectionStatus" class="live-badge">Connecting...</div>
+            </div>
+        </div>
+
+        <div id="live-view" class="view-section active">
+            <div class="dashboard-grid">
+                <div class="card" style="grid-area: cpu;"><div class="card-title">CPU Load</div><div class="metric-val" id="cpu-val">0%</div><div class="mini-bar"><div class="mini-bar-fill" id="cpu-bar" style="background: var(--accent-blue)"></div></div></div>
+                <div class="card" style="grid-area: mem;"><div class="card-title">Memory</div><div class="metric-val" id="mem-val">0%</div><div class="mini-bar"><div class="mini-bar-fill" id="mem-bar" style="background: var(--accent-orange)"></div></div></div>
+                <div class="card" style="grid-area: disk;"><div class="card-title">Disk</div><div class="metric-val" id="disk-val">0%</div><div class="mini-bar"><div class="mini-bar-fill" id="disk-bar" style="background: var(--accent-green)"></div></div></div>
+                <div class="card" style="grid-area: tconns;"><div class="card-title">Total Conns</div><div class="metric-val" id="tconn-val">0</div><div class="metric-sub">Active TCP</div></div>
+                <div class="card" style="grid-area: cps;"><div class="card-title">Conn / Sec</div><div class="metric-val" id="cps-val">0</div><div class="metric-sub">CPS</div></div>
+                
+                <div class="card chart-area">
+                    <div class="card-title">Live Throughput</div>
+                    <div style="position: relative; height: 100%; width: 100%;"><canvas id="liveThroughputChart"></canvas></div>
+                </div>
+
+                <div class="card iface-area"><div class="card-title">Interfaces</div><div class="group-label">MANAGEMENT</div><div class="iface-grid" id="mgmt-grid"></div><div class="group-label">DATA / LACP / VLAN</div><div class="iface-grid" id="main-grid"></div></div>
+                <div class="card threat-area">
+                    <div class="card-title">Threat Intelligence (Last 5 Mins)</div>
+                    <div class="threat-row"><div class="threat-col"><div class="group-label">TOP COUNTRIES</div><div id="threat-country-list"></div></div><div class="threat-col"><div class="group-label">TOP ATTACKS</div><div id="threat-type-list"></div></div></div>
+                </div>
+                <div class="card policy-area">
+                    <div class="card-title">Traffic Policies</div>
+                    <div class="policy-toolbar"><input type="text" id="policySearch" class="input-control" placeholder="Search..." onkeyup="applyPolicyFilters()"><label class="toggle-label"><input type="checkbox" id="hideInactive" onchange="applyPolicyFilters()"> Hide Idle</label></div>
+                    <div class="policy-grid" id="policy-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="history-view" class="view-section">
+            <div class="history-controls">
+                <span style="font-weight:600; color:var(--text-secondary)">FILTER:</span>
+                <select id="timeRange" class="input-control" onchange="loadHistory()"><option value="5m">Last 5 Minutes</option><option value="1h">Last 1 Hour</option><option value="24h">Last 24 Hours</option></select>
+                <select id="policyFilter" class="input-control" onchange="loadHistory()"><option value="Total System">Total System Stats</option></select>
+                <button class="btn" onclick="loadHistory()">Refresh</button><div style="flex-grow:1"></div><button class="btn btn-primary" onclick="exportCSV()">Download CSV</button>
+            </div>
+            
+            <div class="history-charts-row">
+                <div class="history-chart-container"><div class="card-title"><span>System Performance</span><button class="btn btn-icon" onclick="downloadChart('perfChart', 'System_Perf')">📷</button></div><div style="flex:1; position:relative;"><canvas id="perfChart"></canvas></div></div>
+                <div class="history-chart-container"><div class="card-title"><span>System Throughput</span><button class="btn btn-icon" onclick="downloadChart('throughputChart', 'System_Throughput')">📷</button></div><div style="flex:1; position:relative;"><canvas id="throughputChart"></canvas></div></div>
+                <div class="history-chart-container"><div class="card-title"><span>Connection Metrics</span><button class="btn btn-icon" onclick="downloadChart('connChart', 'Conn_Metrics')">📷</button></div><div style="flex:1; position:relative;"><canvas id="connChart"></canvas></div></div>
+            </div>
+
+            <div class="card" style="margin-top:20px;"><div class="card-title">Detailed Logs</div><div style="max-height: 400px; overflow-y: auto;"><table class="history-table" id="dataTable"><thead><tr id="tableHeader"></tr></thead><tbody id="tableBody"></tbody></table></div></div>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = { endpoints: { iface: '/monitor', status: '/status', threats: '/api/threats/recent' }, refreshRate: 5000 };
+        const MYT_TIMEZONE = 'Asia/Kuala_Lumpur';
+        let currentPolicies=[], liveChart=null, perfChart=null, throughputChart=null, connChart=null, isTabAnalysis=false;
+
+        // --- GLOBAL HELPERS ---
+        function getCommonChartOptions() {
+            const gridColor = getComputedStyle(document.body).getPropertyValue('--chart-grid');
+            return {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: { legend: { position: 'top', labels: { color: 'gray' } } },
+                scales: {
+                    x: { grid: { color: gridColor, drawBorder: false }, ticks: { color: 'gray' } },
+                    y: { grid: { color: gridColor, drawBorder: false }, ticks: { color: 'gray' }, beginAtZero: true }
+                }
+            };
+        }
+
+        function createGradient(ctx, c) {
+            const g = ctx.createLinearGradient(0, 0, 0, 300); 
+            g.addColorStop(0, c.replace(')', ',0.4)')); 
+            g.addColorStop(1, c.replace(')', ',0)')); 
+            return g;
+        }
+
+        function formatThroughput(bytes) {
+            if (!bytes || bytes === 0) return { val: 0, unit: 'Kbps', rawMbps: 0 };
+            const bits = bytes * 8; 
+            if (bits >= 1000000) return { val: (bits / 1000000).toFixed(2), unit: 'Mbps', rawMbps: (bits / 1000000) };
+            return { val: (bits / 1000).toFixed(2), unit: 'Kbps', rawMbps: (bits / 1000000) };
+        }
+
+        function getDateTimeMYT(isoString) {
+            const date = new Date(isoString);
+            return {
+                date: date.toLocaleDateString('en-MY', { timeZone: MYT_TIMEZONE }),
+                time: date.toLocaleTimeString('en-MY', { timeZone: MYT_TIMEZONE, hour12: false })
+            };
+        }
+
+        // --- THEME & TABS ---
+        function toggleTheme() {
+            document.body.classList.toggle('light-mode');
+            const isLight = document.body.classList.contains('light-mode');
+            document.getElementById('theme-icon').innerText = isLight ? '☀️' : '🌙';
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            const c = getComputedStyle(document.body).getPropertyValue('--chart-grid');
+            [liveChart, perfChart, throughputChart, connChart].forEach(ch => { if(ch){ch.options.scales.x.grid.color=c; ch.options.scales.y.grid.color=c; ch.update();} });
+        }
+        if (localStorage.getItem('theme') === 'light') toggleTheme();
+
+        function switchTab(id) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(id).classList.add('active'); event.target.classList.add('active');
+            isTabAnalysis = (id === 'history-view'); if(isTabAnalysis) { loadPoliciesDropdown(); loadHistory(); }
+        }
+
+        // --- LIVE DASHBOARD ---
+        function initLiveChart() {
+            const ctx = document.getElementById('liveThroughputChart').getContext('2d');
+            liveChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [
+                    { label: 'Inbound', data: [], borderColor: '#3b82f6', backgroundColor: createGradient(ctx, 'rgba(59,130,246)'), fill: true, tension: 0.4 },
+                    { label: 'Outbound', data: [], borderColor: '#10b981', backgroundColor: createGradient(ctx, 'rgba(16,185,129)'), fill: true, tension: 0.4 }
+                ]},
+                options: { ...getCommonChartOptions(), animation: false }
+            });
+        }
+
+        async function fetchData() {
+            if(isTabAnalysis) return;
+            try {
+                const [r1, r2, r3] = await Promise.all([
+                    fetch(CONFIG.endpoints.iface), 
+                    fetch(CONFIG.endpoints.status),
+                    fetch(CONFIG.endpoints.threats)
+                ]);
+                const iface = await r1.json(), status = await r2.json(), threats = await r3.json();
+                
+                document.getElementById('connectionStatus').innerText="● LIVE"; document.getElementById('connectionStatus').classList.remove('offline');
+                
+                renderMetrics(status.results);
+                updateLiveChart(status.results);
+                renderInterfaces(iface.results);
+                renderThreats(threats); 
+                currentPolicies = status.results.policy || [];
+                applyPolicyFilters();
+            } catch(e) { console.error(e); document.getElementById('connectionStatus').innerText="● OFFLINE"; document.getElementById('connectionStatus').classList.add('offline'); }
+        }
+
+        function renderMetrics(d) {
+            const set = (id, v, c) => { document.getElementById(id+'-val').innerText=v+'%'; document.getElementById(id+'-bar').style.width=v+'%'; };
+            set('cpu', d.cpu); set('mem', d.memory); set('disk', d.log_disk);
+            document.getElementById('tconn-val').innerText = d.tcp_concurrent_connection||0;
+            document.getElementById('cps-val').innerText = d.tcp_connection_per_second||0;
+        }
+
+        function updateLiveChart(d) {
+            if(!liveChart) return;
+            const now = new Date().toLocaleTimeString('en-MY', { timeZone: MYT_TIMEZONE, hour12: false });
+            const inData = formatThroughput(d.throughput_in);
+            const outData = formatThroughput(d.throughput_out);
+            
+            liveChart.data.datasets[0].label = `In (${inData.unit})`;
+            liveChart.data.datasets[1].label = `Out (${outData.unit})`;
+            liveChart.data.labels.push(now);
+            liveChart.data.datasets[0].data.push(inData.val);
+            liveChart.data.datasets[1].data.push(outData.val);
+            if(liveChart.data.labels.length > 20) {
+                liveChart.data.labels.shift(); liveChart.data.datasets[0].data.shift(); liveChart.data.datasets[1].data.shift();
+            }
+            liveChart.update();
+        }
+
+        function renderInterfaces(list) {
+            const mgmt=document.getElementById('mgmt-grid'), main=document.getElementById('main-grid'); mgmt.innerHTML=''; main.innerHTML='';
+            const used=new Set(), sort=(a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true});
+            list.filter(i=>i.name.includes('mgmt')).sort(sort).forEach(i=>mgmt.appendChild(createNode(i,'M')));
+            list.filter(i=>i.type==='Aggregate').forEach(agg=>{ main.appendChild(createNode(agg,'LAG','agg')); if(agg.picker) agg.picker.forEach(p=>used.add(p)); });
+            list.filter(i=>i.type==='Vlan'||i.type==='vlan').sort(sort).forEach(v=>main.appendChild(createNode(v,'V','vlan')));
+            list.filter(i=>!i.name.includes('mgmt') && i.type!=='Aggregate' && !i.type.toLowerCase().includes('vlan')).sort(sort).forEach(i=>{ if(!used.has(i.name)) main.appendChild(createNode(i,'P')); });
+        }
+        function createNode(i,p,t) {
+            const d=document.createElement('div'); let cls=i.linkStatus==='up'?'status-up':'status-down';
+            if(i.linkStatus==='up'){if(t==='agg')cls='status-agg';if(t==='vlan')cls='status-vlan';}
+            d.className=`iface-node ${cls}`; d.innerText=p+i.name.replace(/[^0-9]/g,''); d.title=`${i.name} (${i.linkStatus})`; return d;
+        }
+        
+        function renderThreats(d) {
+            const rnd=(id,arr,k)=>{ const el=document.getElementById(id); el.innerHTML=''; if(!arr||!arr.length)return el.innerHTML='<div style="opacity:0.5;font-size:0.7rem">None</div>'; arr.sort((a,b)=>b.count-a.count).forEach(i=>el.innerHTML+=`<div class="threat-item"><div class="threat-name" title="${i[k]}">${i[k]}</div><div class="threat-count">${i.count}</div></div>`); };
+            rnd('threat-country-list', d.threat_by_countries,'country'); rnd('threat-type-list', d.threat_by_attack_type,'type');
+        }
+        
+        function applyPolicyFilters() {
+            const g=document.getElementById('policy-grid'); g.innerHTML=''; const s=document.getElementById('policySearch').value.toLowerCase(), h=document.getElementById('hideInactive').checked;
+            currentPolicies.sort((a,b)=>b.info.throughput_in-a.info.throughput_in).forEach(p=>{
+                const i=p.info, act=i.throughput_in>0||i.tcp_concurrent_connection>0; if((h&&!act)||(s&&!p.name.toLowerCase().includes(s)))return;
+                const fmt=formatThroughput;
+                g.innerHTML+=`<div class="policy-card ${act?'active':''}"><div class="policy-head">${p.name}</div><div class="policy-stat"><span>In/Out</span> <span class="policy-val">${fmt(i.throughput_in).val}${fmt(i.throughput_in).unit} / ${fmt(i.throughput_out).val}${fmt(i.throughput_out).unit}</span></div><div class="policy-stat"><span>Conns</span> <span class="policy-val">${i.tcp_concurrent_connection}</span></div></div>`;
+            });
+        }
+
+        // --- HISTORY LOGIC ---
+        async function loadPoliciesDropdown() { const s=document.getElementById('policyFilter'); if(s.options.length>1)return; (await(await fetch('/api/policies')).json()).forEach(p=>s.innerHTML+=`<option value="${p}">${p}</option>`); }
+        
+        function fillTimeGaps(apiData, rangeStr, isPolicy) {
+            const filled = [];
+            const now = new Date();
+            let start, step;
+            
+            if(rangeStr === '5m') { start = new Date(now.getTime()-5*60000); step = 60000; }
+            else if(rangeStr === '1h') { start = new Date(now.getTime()-60*60000); step = 60000; }
+            else if(rangeStr === '24h') { start = new Date(now.getTime()-24*60*60000); step = 60*60000; }
+            
+            for (let t = start.getTime(); t <= now.getTime(); t += step) {
+                const point = apiData.find(d => { const dt = new Date(d.time).getTime(); return dt >= t && dt < (t + step); });
+                if (point) {
+                    filled.push(point);
+                } else {
+                    const empty = { time: new Date(t).toISOString() };
+                    if (isPolicy) { empty.tcp_conns=0; empty.tcp_cps=0; empty.t_in=0; empty.t_out=0; }
+                    else { empty.cpu=0; empty.mem=0; empty.disk=0; empty.tcp_conns=0; empty.tcp_cps=0; empty.t_in=0; empty.t_out=0; }
+                    filled.push(empty);
+                }
+            }
+            return filled;
+        }
+
+        async function loadHistory() {
+            const r=document.getElementById('timeRange').value, p=document.getElementById('policyFilter').value;
+            const raw=await(await fetch(`/api/history?range=${r}&policy=${p}`)).json();
+            const isPolicy = (p !== 'Total System');
+            const data = fillTimeGaps(raw, r, isPolicy);
+            renderHistCharts(data,p); renderHistTable(data,p);
+        }
+
+        function renderHistCharts(data, pol) {
+            const ctx1=document.getElementById('perfChart').getContext('2d');
+            const ctx2=document.getElementById('throughputChart').getContext('2d');
+            const ctx3=document.getElementById('connChart').getContext('2d');
+            
+            const lbl=data.map(d=>getDateTimeMYT(d.time).time);
+            
+            if(perfChart) perfChart.destroy(); 
+            if(throughputChart) throughputChart.destroy();
+            if(connChart) connChart.destroy();
+            
+            // 1. Performance
+            if(pol==='Total System') {
+                perfChart=new Chart(ctx1,{type:'line',data:{labels:lbl,datasets:[
+                    {label:'CPU',data:data.map(d=>d.cpu),borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.2)',fill:true,tension:0.4},
+                    {label:'Mem',data:data.map(d=>d.mem),borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,0.2)',fill:true,tension:0.4}
+                ]},options:getCommonChartOptions()});
+            } else {
+                perfChart=new Chart(ctx1,{type:'line',data:{labels:lbl,datasets:[]},options:getCommonChartOptions()});
+            }
+
+            // 2. Throughput
+            throughputChart=new Chart(ctx2,{type:'line',data:{labels:lbl,datasets:[
+                {label:'In (Kbps)',data:data.map(d=>formatThroughput(d.t_in).rawMbps*1000),borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.2)',fill:true,tension:0.4},
+                {label:'Out (Kbps)',data:data.map(d=>formatThroughput(d.t_out).rawMbps*1000),borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,0.2)',fill:true,tension:0.4}
+            ]},options:getCommonChartOptions()});
+
+            // 3. Connections
+            connChart=new Chart(ctx3,{type:'line',data:{labels:lbl,datasets:[
+                {label:'Conns',data:data.map(d=>d.tcp_conns),borderColor:'#a855f7',backgroundColor:'rgba(168,85,247,0.2)',fill:true,tension:0.4},
+                {label:'CPS',data:data.map(d=>d.tcp_cps),borderColor:'#06b6d4',backgroundColor:'rgba(6,182,212,0.2)',fill:true,tension:0.4}
+            ]},options:getCommonChartOptions()});
+        }
+        function renderHistTable(data, pol) {
+            const b=document.getElementById('tableBody'), h=document.getElementById('tableHeader'); b.innerHTML='';
+            const fmt=formatThroughput;
+            if(pol==='Total System') {
+                h.innerHTML='<th>Date</th><th>Time</th><th>CPU</th><th>Mem</th><th>Disk</th><th>Conns</th><th>CPS</th><th>In</th><th>Out</th>';
+                data.slice().reverse().forEach(r=>{
+                    const dt = getDateTimeMYT(r.time);
+                    b.innerHTML+=`<tr><td>${dt.date}</td><td>${dt.time}</td><td>${r.cpu}%</td><td>${r.mem}%</td><td>${r.disk}%</td><td>${r.tcp_conns}</td><td>${r.tcp_cps}</td><td>${fmt(r.t_in).val} ${fmt(r.t_in).unit}</td><td>${fmt(r.t_out).val} ${fmt(r.t_out).unit}</td></tr>`;
+                });
+            } else {
+                h.innerHTML='<th>Date</th><th>Time</th><th>Conns</th><th>CPS</th><th>In</th><th>Out</th>';
+                data.slice().reverse().forEach(r=>{
+                    const dt = getDateTimeMYT(r.time);
+                    b.innerHTML+=`<tr><td>${dt.date}</td><td>${dt.time}</td><td>${r.tcp_conns}</td><td>${r.tcp_cps}</td><td>${fmt(r.t_in).val} ${fmt(r.t_in).unit}</td><td>${fmt(r.t_out).val} ${fmt(r.t_out).unit}</td></tr>`;
+                });
+            }
+        }
+        function downloadChart(id,n){const a=document.createElement('a');a.href=document.getElementById(id).toDataURL('image/png');a.download=n+'.png';a.click();}
+        
+        function exportCSV() {
+            let csv=[]; 
+            document.querySelectorAll("#dataTable tr").forEach(row => {
+                const rowData = Array.from(row.querySelectorAll("td,th")).map(cell => `"${cell.innerText}"`);
+                csv.push(rowData.join(","));
+            });
+            const blob = new Blob([csv.join("\n")], { type: "text/csv" });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = "history.csv"; a.click();
+        }
+
+        initLiveChart(); fetchData(); setInterval(fetchData, CONFIG.refreshRate);
+    </script>
+</body>
+</html>
