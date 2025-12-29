@@ -108,3 +108,10 @@ Frontend (index.html): Search for Asia/Kuala_Lumpur and replace it with your IAN
 
 ## 📝 License
 This project is open-source. Feel free to modify and distribute it for your own monitoring needs.
+
+
+## Screenshots
+
+![Alt text](/screenshots/SCR-20251229-pnxq.png)
+
+![Alt text](/screenshots/SCR-20251229-poad.png)
