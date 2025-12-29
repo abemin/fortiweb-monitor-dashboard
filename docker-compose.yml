@@ -1,15 +1,13 @@
 services:
-  fortiweb-monitor:
+  fortiweb-analytics:
     build: .
     container_name: fortiweb-dashboard
-    restart: always
+    restart: unless-stopped
     ports:
       - "9000:5000"
-    environment:
-      # Do not include https:// here, just the IP
-      - FW_IP=172.16.1.80
-      
-      # PASTE YOUR FULL TOKEN HERE. 
-      # If your device requires "Basic " before the hash, include it here.
-      # Based on your previous error, try exactly this first:
-      - FW_TOKEN=eyJ1c2VybmFtZSI6ImFkbWluIiwicGFzc3dvcmQiOiJJc3NzcCoxMjMiLCJ2ZG9tIjoicm9vdCJ9Cg==
+    # This loads the variables from the .env file
+    env_file:
+      - .env
+    # This ensures your history database persists even if you rebuild the container
+    volumes:
+      - ./stats.db:/app/stats.db
